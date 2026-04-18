@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import { Channel, ConsumeMessage } from 'amqplib';
 import { appConfig } from '../../config';
@@ -9,7 +9,7 @@ import { WEBHOOK_DLQ, WEBHOOK_DLX, WEBHOOK_QUEUE } from './webhook.service';
 const RATE_LIMIT_INTERVAL_MS = Math.ceil(1000 / appConfig.discord.rateLimit);
 
 @Injectable()
-export class WebhookProcessor implements OnModuleInit {
+export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(WebhookProcessor.name);
   private channel: ChannelWrapper;
   private lastSentAt = 0; // timestamp последней отправки
@@ -43,6 +43,11 @@ export class WebhookProcessor implements OnModuleInit {
         this.logger.log('Webhook processor started');
       },
     });
+  }
+
+  async onApplicationShutdown() {
+    await this.channel.close();
+    this.logger.log('RabbitMQ processor channel closed');
   }
 
   private async handleMessage(channel: Channel, msg: ConsumeMessage | null): Promise<void> {
