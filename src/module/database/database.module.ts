@@ -15,6 +15,7 @@ import { DiscordHook } from './entities/discord-hook.model';
       models: [DiscordHook],
       autoLoadModels: true,
       synchronize: true,
+      logging: false,
     }),
   ],
 })
