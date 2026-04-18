@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, ValidateNested } from 'class-validator';
+import { DbConfigDto } from './db.dto';
 import { DiscordConfigDto } from './discord.dto';
 import { RabbitConfigDto } from './rabbit.dto';
 
@@ -23,4 +24,8 @@ export class AppConfigDto {
   @ValidateNested()
   @Type(() => RabbitConfigDto)
   rabbit: RabbitConfigDto;
+
+  @ValidateNested()
+  @Type(() => DbConfigDto)
+  db: DbConfigDto;
 }
