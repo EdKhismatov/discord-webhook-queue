@@ -12,8 +12,15 @@ type EnvStructure<T = object> = {
 const rawConfig: EnvStructure<AppConfigDto> = {
   env: process.env.NODE_ENV,
   port: process.env.PORT,
-  rabbitUrl: process.env.RABBITMQ_URL,
-  discord: process.env.DISCORD_WEBHOOK_URL,
+  discord: {
+    webhookUrl: process.env.DISCORD_WEBHOOK_URL,
+    rateLimit: process.env.DISCORD_RATE_LIMIT,
+  },
+  rabbit: {
+    rabbitUrl: process.env.RABBITMQ_URL,
+    rabbitPassword: process.env.RABBIT_PASSWORD,
+    rabbitUser: process.env.RABBITMQ_DEFAULT_USER,
+  },
 };
 
 export const appConfig = validate(AppConfigDto, rawConfig);

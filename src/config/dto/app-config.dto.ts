@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsString } from 'class-validator';
+import { IsEnum, IsNumber, ValidateNested } from 'class-validator';
+import { DiscordConfigDto } from './discord.dto';
+import { RabbitConfigDto } from './rabbit.dto';
 
 export enum Environment {
   PROD = 'prod',
@@ -14,9 +16,11 @@ export class AppConfigDto {
   @Type(() => Number)
   readonly port: number;
 
-  @IsString()
-  rabbitUrl: string;
+  @ValidateNested()
+  @Type(() => DiscordConfigDto)
+  discord: DiscordConfigDto;
 
-  @IsString()
-  discord: string;
+  @ValidateNested()
+  @Type(() => RabbitConfigDto)
+  rabbit: RabbitConfigDto;
 }
