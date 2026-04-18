@@ -5,7 +5,7 @@ import { AppConfigDto } from './dto';
 
 readEnv();
 
-type EnvStructure<T = any> = {
+type EnvStructure<T = object> = {
   [key in keyof T]: T[key] extends object ? EnvStructure<T[key]> : string | undefined;
 };
 
