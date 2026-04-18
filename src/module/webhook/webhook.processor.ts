@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ChannelWrapper } from 'amqp-connection-manager';
+import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import { Channel, ConsumeMessage } from 'amqplib';
 import { appConfig } from '../../config';
 import { DiscordSendStatus, DiscordService, IDiscordEmbed } from '../discord/discord.service';
@@ -16,7 +16,7 @@ export class WebhookProcessor implements OnModuleInit {
 
   constructor(
     @Inject(RABBIT_CONNECTION)
-    private readonly connection: any,
+    private readonly connection: AmqpConnectionManager,
     private readonly discordService: DiscordService,
   ) {}
 
