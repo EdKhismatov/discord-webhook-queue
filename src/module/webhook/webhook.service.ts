@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import type { Options } from 'amqplib';
 import { Channel } from 'amqplib';
@@ -10,7 +10,7 @@ export const WEBHOOK_DLQ = 'webhook.dlq';
 export const WEBHOOK_DLX = 'webhook.dlx';
 
 @Injectable()
-export class WebhookService implements OnModuleInit {
+export class WebhookService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(WebhookService.name);
   private channel: ChannelWrapper;
 
@@ -50,6 +50,11 @@ export class WebhookService implements OnModuleInit {
 
     await this.channel.waitForConnect();
     this.logger.log('RabbitMQ channel ready');
+  }
+
+  async onApplicationShutdown() {
+    await this.channel.close();
+    this.logger.log('RabbitMQ channel closed');
   }
 
   async publish(embed: IDiscordEmbed): Promise<void> {
