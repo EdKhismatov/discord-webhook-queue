@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { InjectModel } from '@nestjs/sequelize';
 import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import type { Options } from 'amqplib';
 import { Channel } from 'amqplib';
+import { DiscordHook } from '../database/entities/discord-hook.model';
 import { IDiscordEmbed } from '../discord/discord.service';
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
 import { setupWebhookTopology, WebhookQueue } from './webhook.topology';
@@ -16,6 +18,8 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
   constructor(
     @Inject(RABBIT_CONNECTION)
     private readonly connection: AmqpConnectionManager,
+    @InjectModel(DiscordHook)
+    private readonly discordHookModel: typeof DiscordHook,
   ) {}
 
   async onModuleInit() {
@@ -37,10 +41,19 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async publish(embed: IDiscordEmbed): Promise<void> {
+    const messageId = crypto.randomUUID();
+
     await this.channel.sendToQueue(WebhookQueue.QUEUE, embed, {
       deliveryMode: 2,
-      messageId: crypto.randomUUID(),
+      messageId,
     } as Options.Publish);
+
+    await this.discordHookModel.create({
+      messageId,
+      event: 'webhook',
+      payload: embed,
+      success: null,
+    });
 
     this.logger.log(`Webhook queued: ${embed.title}`);
   }

@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { InjectModel } from '@nestjs/sequelize';
 import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import { Channel, ConsumeMessage } from 'amqplib';
 import { appConfig } from '../../config';
+import { DiscordHook } from '../database/entities/discord-hook.model';
 import { DiscordSendStatus, DiscordService, IDiscordEmbed } from '../discord/discord.service';
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
 import { setupWebhookTopology, WebhookQueue } from './webhook.topology';
@@ -18,6 +20,8 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
     @Inject(RABBIT_CONNECTION)
     private readonly connection: AmqpConnectionManager,
     private readonly discordService: DiscordService,
+    @InjectModel(DiscordHook)
+    private readonly discordHookModel: typeof DiscordHook,
   ) {}
 
   async onModuleInit() {
@@ -45,6 +49,7 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
     if (!msg) return;
 
     const embed = JSON.parse(msg.content.toString()) as IDiscordEmbed;
+    const messageId = msg.properties.messageId as string;
 
     this.logger.log(`Processing webhook: ${embed.title}`);
 
@@ -55,10 +60,10 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
 
     switch (result.status) {
       case DiscordSendStatus.SUCCESS:
-        // Успех — подтверждаем сообщение
         channel.ack(msg);
         this.lastSentAt = Date.now();
         this.logger.log(`Webhook sent: ${embed.title}`);
+        await this.discordHookModel.update({ success: true, lastTryAt: new Date() }, { where: { messageId } });
         break;
 
       case DiscordSendStatus.RATE_LIMITED:
@@ -66,19 +71,41 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
         channel.nack(msg, false, true); // requeue = true
         const waitMs = (result.retryAfter ?? 1) * 1000;
         this.logger.warn(`Rate limited, waiting ${waitMs}ms`);
+        await this.discordHookModel.increment('failedTries', { where: { messageId } });
+        await this.discordHookModel.update(
+          { lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + waitMs) },
+          { where: { messageId } },
+        );
         await this.sleep(waitMs);
         break;
 
       case DiscordSendStatus.INVALID_WEBHOOK:
         // 400 — отправляем в DLQ
-        channel.nack(msg, false, false); // requeue = false → идёт в DLX/DLQ
+        channel.nack(msg, false, false); // requeue = false → идёт в DLX
         this.logger.error(`Invalid webhook sent to DLQ: ${embed.title}`);
+        await this.discordHookModel.increment('failedTries', { where: { messageId } });
+        await this.discordHookModel.update({ success: false, lastTryAt: new Date() }, { where: { messageId } });
         break;
 
       case DiscordSendStatus.ERROR:
-        // Неожиданная ошибка — возвращаем в очередь
-        channel.nack(msg, false, true);
-        await this.sleep(1000);
+        // Неожиданная ошибка — возвращаем в очередь или в DLQ после maxRetryCount попыток
+        const hook = await this.discordHookModel.findOne({ where: { messageId } });
+        const failedTries = hook?.failedTries ?? 0;
+        if (failedTries >= appConfig.discord.maxRetryCount) {
+          channel.nack(msg, false, false);
+          await this.discordHookModel.update(
+            { failedTries: failedTries + 1, success: false, lastTryAt: new Date() },
+            { where: { messageId } },
+          );
+        } else {
+          channel.nack(msg, false, true); // requeue = true
+          const retryMs = Math.min(1000 * Math.pow(2, failedTries), 30_000);
+          await this.discordHookModel.update(
+            { failedTries: failedTries + 1, lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + retryMs) },
+            { where: { messageId } },
+          );
+          await this.sleep(retryMs);
+        }
         break;
     }
   }

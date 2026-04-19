@@ -6,6 +6,7 @@ import {
   Model,
   PrimaryKey,
   Table,
+  Unique,
   UpdatedAt,
 } from 'sequelize-typescript';
 
@@ -16,11 +17,15 @@ export class DiscordHook extends Model {
   @Column(DataType.UUID)
   declare id: string;
 
+  @Unique
+  @Column(DataType.UUID)
+  declare messageId: string;
+
   @Column(DataType.STRING)
   declare event: string;
 
   @Column(DataType.JSONB)
-  declare payload: object;
+  declare payload: Record<string, unknown>;
 
   @Default(null)
   @Column({ type: DataType.BOOLEAN, allowNull: true })
