@@ -7,7 +7,7 @@ export class DiscordConfigDto {
 
   @IsNumber()
   @Type(() => Number)
-  rateLimit: number;
+  rateLimitIntervalFactor: number;
 
   @IsNumber()
   @Type(() => Number)

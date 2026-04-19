@@ -1,23 +1,9 @@
-import {
-  Column,
-  CreatedAt,
-  DataType,
-  Default,
-  Model,
-  PrimaryKey,
-  Table,
-  Unique,
-  UpdatedAt,
-} from 'sequelize-typescript';
+import { Column, CreatedAt, DataType, Default, Model, PrimaryKey, Table, UpdatedAt } from 'sequelize-typescript';
 
 @Table({ tableName: 'discord_hooks', timestamps: true })
 export class DiscordHook extends Model {
   @PrimaryKey
   @Default(DataType.UUIDV4)
-  @Column(DataType.UUID)
-  declare id: string;
-
-  @Unique
   @Column(DataType.UUID)
   declare messageId: string;
 

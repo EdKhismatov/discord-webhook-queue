@@ -8,7 +8,7 @@ import { DiscordSendStatus, DiscordService, IDiscordEmbed } from '../discord/dis
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
 import { setupWebhookTopology, WebhookQueue } from './webhook.topology';
 
-const RATE_LIMIT_INTERVAL_MS = Math.ceil(1000 / appConfig.discord.rateLimit);
+const RATE_LIMIT_INTERVAL_MS = Math.ceil(1000 / appConfig.discord.rateLimitIntervalFactor);
 
 @Injectable()
 export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
@@ -28,14 +28,13 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
     this.channel = this.connection.createChannel({
       json: true,
       setup: async (channel: Channel) => {
+        this.logger.log('Webhook processor started');
         await setupWebhookTopology(channel);
 
         // Обрабатываем по одному сообщению за раз!
         await channel.prefetch(1);
 
         await channel.consume(WebhookQueue.QUEUE, (msg) => this.handleMessage(channel, msg));
-
-        this.logger.log('Webhook processor started');
       },
     });
   }
@@ -60,7 +59,7 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
     try {
       embed = JSON.parse(msg.content.toString()) as IDiscordEmbed;
     } catch {
-      this.logger.error(`[${messageId}] Failed to parse message content, sending to DLQ`);
+      this.logger.error(`[messageId=${messageId}] Failed to parse message content, sending to DLQ`);
       channel.nack(msg, false, false);
       return;
     }
@@ -80,7 +79,7 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
           channel.ack(msg);
           acknowledged = true;
           this.lastSentAt = Date.now();
-          this.logger.log(`Webhook sent: ${embed.title}`);
+          this.logger.log(`Webhook sent: messageId=${messageId}`);
           await this.discordHookModel.update({ success: true, lastTryAt: new Date() }, { where: { messageId } });
           break;
 
@@ -102,7 +101,7 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
           // 400 — отправляем в DLQ
           channel.nack(msg, false, false); // requeue = false → идёт в DLX
           acknowledged = true;
-          this.logger.error(`Invalid webhook sent to DLQ: ${embed.title}`);
+          this.logger.error(`Invalid webhook sent to DLQ: messageId=${messageId}`);
           await this.discordHookModel.increment('failedTries', { where: { messageId } });
           await this.discordHookModel.update({ success: false, lastTryAt: new Date() }, { where: { messageId } });
           break;
@@ -131,7 +130,7 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
           break;
       }
     } catch (err) {
-      this.logger.error(`[${messageId}] Unexpected error, requeueing`, err);
+      this.logger.error(`[messageId=${messageId}] Unexpected error, requeueing`, err);
       if (!acknowledged) {
         channel.nack(msg, false, true);
       }

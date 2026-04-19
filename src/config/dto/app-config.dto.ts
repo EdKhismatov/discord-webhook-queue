@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, ValidateNested } from 'class-validator';
-import { DbConfigDto } from './db.dto';
-import { DiscordConfigDto } from './discord.dto';
+import { DbConfigDto } from './db-config.dto';
+import { DiscordConfigDto } from './discord-config.dto';
 import { RabbitConfigDto } from './rabbit.dto';
 
 export enum Environment {

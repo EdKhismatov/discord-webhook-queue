@@ -57,9 +57,9 @@ src/
 │   ├── app-config.ts                   # загрузка и валидация env через class-validator
 │   └── dto/
 │       ├── app-config.dto.ts           # AppConfigDto
-│       ├── discord.dto.ts              # DiscordConfigDto
+│       ├── discord-config.dto.ts              # DiscordConfigDto
 │       ├── rabbit.dto.ts               # RabbitConfigDto
-│       └── db.dto.ts                   # DbConfigDto
+│       └── db-config.dto.ts                   # DbConfigDto
 ├── module/
 │   ├── database/
 │   │   ├── database.module.ts
