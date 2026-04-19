@@ -46,12 +46,12 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
       event: WebhookEvent.WEBHOOK,
       payload: embed,
     });
-    this.logger.log(`Webhook queued: ${msg.messageId}`);
     try {
       await this.channel.sendToQueue(WebhookQueue.QUEUE, embed, {
         deliveryMode: 2,
         messageId: msg.messageId,
       } as Options.Publish);
+      this.logger.log(`Webhook queued: ${msg.messageId}`);
     } catch (error) {
       this.logger.error(`Failed to queue webhook ${msg.messageId}`, error);
       await msg.update({ success: false });
