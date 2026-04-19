@@ -58,7 +58,7 @@ src/
 │   └── dto/
 │       ├── app-config.dto.ts           # AppConfigDto
 │       ├── discord-config.dto.ts              # DiscordConfigDto
-│       ├── rabbit.dto.ts               # RabbitConfigDto
+│       ├── rabbit-config.dto.ts               # RabbitConfigDto
 │       └── db-config.dto.ts                   # DbConfigDto
 ├── module/
 │   ├── database/
