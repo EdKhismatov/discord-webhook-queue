@@ -8,4 +8,8 @@ export class DiscordConfigDto {
   @IsNumber()
   @Type(() => Number)
   rateLimit: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  maxRetryCount: number;
 }

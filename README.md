@@ -1,98 +1,294 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Discord Webhook Queue
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Отказоустойчивый сервис для отправки Discord-вебхуков через очередь RabbitMQ с трекингом доставки в PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Стек
 
-## Description
+| Технология | Назначение |
+|---|---|
+| NestJS + TypeScript | Фреймворк |
+| RabbitMQ (amqp-connection-manager) | Очередь сообщений |
+| PostgreSQL + Sequelize | Хранение истории доставки |
+| got | HTTP клиент для Discord API |
+| Docker Compose | Инфраструктура |
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Архитектура
 
-```bash
-$ npm install
+```
+POST /webhook/send
+       │
+       ▼
+WebhookController
+       │  валидация (ValidationPipe)
+       ▼
+WebhookService.publish()
+       │  создаёт запись в БД (success: null)
+       │  кладёт в RabbitMQ
+       ▼
+   webhook.queue ──── x-dead-letter ──▶ webhook.dlx ──▶ webhook.dlq
+       │
+       ▼
+WebhookProcessor.handleMessage()
+       │  rate limit
+       ▼
+DiscordService.sendWebhook()
+       │
+       ├── 200 OK     → ack         → success: true
+       ├── 429        → nack+requeue → sleep(retryAfter) → повтор
+       ├── 400        → nack         → DLQ, success: false
+       └── ERROR      → nack+requeue → exponential backoff
+                        (после maxRetryCount → DLQ, success: false)
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ npm run start
+## Структура проекта
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```
+src/
+├── config/
+│   ├── app-config.ts           # загрузка и валидация env через class-validator
+│   └── dto/
+│       ├── app-config.dto.ts   # AppConfigDto
+│       ├── discord.dto.ts      # DiscordConfigDto
+│       ├── rabbit.dto.ts       # RabbitConfigDto
+│       └── db.dto.ts           # DbConfigDto
+├── module/
+│   ├── database/
+│   │   ├── database.module.ts
+│   │   └── entities/
+│   │       └── discord-hook.model.ts   # модель discord_hooks
+│   ├── discord/
+│   │   └── discord.service.ts          # HTTP запросы к Discord
+│   ├── rabbit/
+│   │   └── rabbit.module.ts            # глобальный провайдер соединения
+│   └── webhook/
+│       ├── webhook.controller.ts       # POST /webhook/send
+│       ├── webhook.service.ts          # publish в очередь + запись в БД
+│       ├── webhook.processor.ts        # consume + обработка статусов
+│       ├── webhook.topology.ts         # объявление очередей и exchange
+│       └── dto/
+│           └── send-webhook.dto.ts     # входящий DTO
+├── validation/
+│   └── validate.dto.ts                 # утилита валидации конфига
+└── main.ts
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## Переменные окружения
 
-# e2e tests
-$ npm run test:e2e
+Создай файл `.env` в корне проекта:
 
-# test coverage
-$ npm run test:cov
+```env
+# App
+PORT=3000
+NODE_ENV=dev
+
+# Discord
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_RATE_LIMIT=2          # максимум запросов в секунду
+DISCORD_MAX_RETRY_COUNT=5     # после N ошибок → DLQ
+
+# RabbitMQ
+RABBITMQ_URL=amqp://localhost:5672
+RABBITMQ_DEFAULT_USER=guest
+RABBIT_PASSWORD=guest
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=discord
 ```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Быстрый старт
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 1. Запуск инфраструктуры
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker-compose up -d
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Поднимает:
+- RabbitMQ на портах `5672` (AMQP) и `15672` (Management UI)
+- PostgreSQL на порту `5432`
 
-## Resources
+### 2. Установка зависимостей
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+npm ci
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### 3. Запуск приложения
 
-## Support
+```bash
+# dev режим с hot-reload
+npm run start:dev
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+# production
+npm run start:prod
+```
 
-## Stay in touch
+Таблица `discord_hooks` создаётся автоматически при старте (`synchronize: true`).
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
 
-## License
+## API
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+### POST /webhook/send
+
+Принимает вебхук, кладёт в очередь и сразу возвращает `202 Accepted`.
+
+**Request body:**
+```json
+{
+  "title": "Новый пользователь",
+  "description": "Пользователь user@example.com зарегистрировался",
+  "color": 5814783,
+  "footer": {
+    "text": "registration-service"
+  }
+}
+```
+
+| Поле | Тип | Обязательное |
+|---|---|---|
+| title | string | да |
+| description | string | да |
+| color | number | нет |
+| footer.text | string | нет |
+
+**Response `202 Accepted`:**
+```json
+{
+  "message": "Webhook accepted and queued"
+}
+```
+
+---
+
+## RabbitMQ топология
+
+| Сущность | Тип | Назначение |
+|---|---|---|
+| `webhook.queue` | queue | основная очередь входящих вебхуков |
+| `webhook.dlx` | direct exchange | маршрутизатор "мёртвых" сообщений |
+| `webhook.dlq` | queue | хранилище невалидных и исчерпавших retry сообщений |
+
+Сообщения помечены как **persistent** (`deliveryMode: 2`) — не теряются при перезапуске RabbitMQ.
+
+**prefetch(1)** — процессор берёт только одно сообщение за раз, обеспечивая соблюдение rate limit.
+
+---
+
+## Обработка ошибок
+
+| Статус Discord | Действие | БД |
+|---|---|---|
+| 200 OK | `ack` — сообщение удалено из очереди | `success: true` |
+| 429 Rate Limited | `nack(requeue=true)` + `sleep(retryAfter)` | `failedTries++`, `nextRetryAt` |
+| 400 Bad Request | `nack(requeue=false)` → DLQ | `success: false`, `failedTries++` |
+| Сетевая ошибка | `nack(requeue=true)` + exponential backoff | `failedTries++`, `nextRetryAt` |
+| Ошибка > maxRetryCount | `nack(requeue=false)` → DLQ | `success: false` |
+
+### Exponential backoff при ошибках
+
+```
+попытка 0 → ждём  1с
+попытка 1 → ждём  2с
+попытка 2 → ждём  4с
+попытка 3 → ждём  8с
+попытка 4 → ждём 16с
+попытка 5 → DLQ  (при maxRetryCount=5)
+
+максимум: 30с
+```
+
+---
+
+## База данных
+
+### Таблица `discord_hooks`
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| id | UUID | первичный ключ |
+| messageId | UUID | уникальный ID из RabbitMQ |
+| event | string | тип события (например: `webhook`) |
+| payload | JSONB | тело вебхука |
+| success | boolean / null | `null` — в работе, `true` — доставлен, `false` — провал |
+| failedTries | integer | количество неудачных попыток |
+| lastTryAt | timestamptz | время последней попытки |
+| nextRetryAt | timestamptz | запланированное время следующей попытки |
+| createdAt | timestamptz | время создания записи |
+| updatedAt | timestamptz | время последнего обновления |
+
+---
+
+## Мониторинг
+
+### RabbitMQ Management UI
+
+```
+http://localhost:15672
+```
+
+Логин: `RABBITMQ_DEFAULT_USER` / `RABBIT_PASSWORD` из `.env`
+
+Полезные разделы:
+- **Queues** → состояние очередей, количество сообщений
+- **webhook.dlq** → Get Messages → просмотр невалидных вебхуков с историей `x-death`
+
+---
+
+## Нагрузочное тестирование
+
+```bash
+# 60 запросов (по умолчанию)
+node scripts/load-test.mjs
+
+# 200 запросов
+node scripts/load-test.mjs 200
+```
+
+Скрипт отправляет три типа запросов:
+- **VALID** — корректные вебхуки → `webhook.queue`
+- **DLQ_TRIGGER** (каждый 5-й) — пустые поля, Discord вернёт 400 → `webhook.dlq`
+- **INVALID** (каждый 7-й) — нет обязательных полей → наш `ValidationPipe` → `400`
+
+Пример вывода:
+```
+=== Results ===
+Total time  : 312ms
+Req/sec     : 192
+Avg latency : 48ms | Min: 12ms | Max: 203ms
+
+--- By type ---
+VALID        total: 41 | 202: 41 | 400: 0  | other: 0
+DLQ_TRIGGER  total: 11 | 202: 11 | 400: 0  | other: 0
+INVALID      total: 8  | 202: 0  | 400: 8  | other: 0
+
+--- Expected in RabbitMQ ---
+Queued total  : 52
+→ webhook.queue (VALID)   : 41
+→ DLQ bound (DLQ_TRIGGER) : 11 (after Discord rejects them)
+Rejected by us (INVALID)  : 8
+```
+
+---
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/check.yml`) при каждом push:
+
+1. Checkout
+2. Setup Node.js
+3. `npm ci`
+4. `npm run build`
+5. `npm run lint`

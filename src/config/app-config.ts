@@ -15,6 +15,7 @@ const rawConfig: EnvStructure<AppConfigDto> = {
   discord: {
     webhookUrl: process.env.DISCORD_WEBHOOK_URL,
     rateLimit: process.env.DISCORD_RATE_LIMIT,
+    maxRetryCount: process.env.DISCORD_MAX_RETRY_COUNT,
   },
   rabbit: {
     rabbitUrl: process.env.RABBITMQ_URL,
