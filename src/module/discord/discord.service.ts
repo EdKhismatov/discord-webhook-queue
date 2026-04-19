@@ -40,6 +40,7 @@ export class DiscordService {
           ...this.WEBHOOK_PAYLOAD,
           embeds: [embed],
         },
+        responseType: 'json',
       });
 
       this.logger.log(`Webhook sent successfully: ${embed.title}`);

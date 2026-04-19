@@ -48,65 +48,93 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
   private async handleMessage(channel: Channel, msg: ConsumeMessage | null): Promise<void> {
     if (!msg) return;
 
-    const embed = JSON.parse(msg.content.toString()) as IDiscordEmbed;
-    const messageId = msg.properties.messageId as string;
+    const messageId = msg.properties.messageId as string | undefined;
+
+    if (!messageId) {
+      this.logger.error('Message has no messageId, discarding');
+      channel.nack(msg, false, false);
+      return;
+    }
+
+    let embed: IDiscordEmbed;
+    try {
+      embed = JSON.parse(msg.content.toString()) as IDiscordEmbed;
+    } catch {
+      this.logger.error(`[${messageId}] Failed to parse message content, sending to DLQ`);
+      channel.nack(msg, false, false);
+      return;
+    }
 
     this.logger.log(`Processing webhook: ${embed.title}`);
 
-    // Ждём чтобы не превысить rate limit
-    await this.waitForRateLimit();
+    let acknowledged = false;
 
-    const result = await this.discordService.sendWebhook(embed);
+    try {
+      // Ждём чтобы не превысить rate limit
+      await this.waitForRateLimit();
 
-    switch (result.status) {
-      case DiscordSendStatus.SUCCESS:
-        channel.ack(msg);
-        this.lastSentAt = Date.now();
-        this.logger.log(`Webhook sent: ${embed.title}`);
-        await this.discordHookModel.update({ success: true, lastTryAt: new Date() }, { where: { messageId } });
-        break;
+      const result = await this.discordService.sendWebhook(embed);
 
-      case DiscordSendStatus.RATE_LIMITED:
-        // 429 — возвращаем в очередь и ждём
-        channel.nack(msg, false, true); // requeue = true
-        const waitMs = (result.retryAfter ?? 1) * 1000;
-        this.logger.warn(`Rate limited, waiting ${waitMs}ms`);
-        await this.discordHookModel.increment('failedTries', { where: { messageId } });
-        await this.discordHookModel.update(
-          { lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + waitMs) },
-          { where: { messageId } },
-        );
-        await this.sleep(waitMs);
-        break;
+      switch (result.status) {
+        case DiscordSendStatus.SUCCESS:
+          channel.ack(msg);
+          acknowledged = true;
+          this.lastSentAt = Date.now();
+          this.logger.log(`Webhook sent: ${embed.title}`);
+          await this.discordHookModel.update({ success: true, lastTryAt: new Date() }, { where: { messageId } });
+          break;
 
-      case DiscordSendStatus.INVALID_WEBHOOK:
-        // 400 — отправляем в DLQ
-        channel.nack(msg, false, false); // requeue = false → идёт в DLX
-        this.logger.error(`Invalid webhook sent to DLQ: ${embed.title}`);
-        await this.discordHookModel.increment('failedTries', { where: { messageId } });
-        await this.discordHookModel.update({ success: false, lastTryAt: new Date() }, { where: { messageId } });
-        break;
-
-      case DiscordSendStatus.ERROR:
-        // Неожиданная ошибка — возвращаем в очередь или в DLQ после maxRetryCount попыток
-        const hook = await this.discordHookModel.findOne({ where: { messageId } });
-        const failedTries = hook?.failedTries ?? 0;
-        if (failedTries >= appConfig.discord.maxRetryCount) {
-          channel.nack(msg, false, false);
-          await this.discordHookModel.update(
-            { failedTries: failedTries + 1, success: false, lastTryAt: new Date() },
-            { where: { messageId } },
-          );
-        } else {
+        case DiscordSendStatus.RATE_LIMITED:
+          // 429 — возвращаем в очередь и ждём
           channel.nack(msg, false, true); // requeue = true
-          const retryMs = Math.min(1000 * Math.pow(2, failedTries), 30_000);
+          acknowledged = true;
+          const waitMs = (result.retryAfter ?? 1) * 1000;
+          this.logger.warn(`Rate limited, waiting ${waitMs}ms`);
+          await this.discordHookModel.increment('failedTries', { where: { messageId } });
           await this.discordHookModel.update(
-            { failedTries: failedTries + 1, lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + retryMs) },
+            { lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + waitMs) },
             { where: { messageId } },
           );
-          await this.sleep(retryMs);
-        }
-        break;
+          await this.sleep(waitMs);
+          break;
+
+        case DiscordSendStatus.INVALID_WEBHOOK:
+          // 400 — отправляем в DLQ
+          channel.nack(msg, false, false); // requeue = false → идёт в DLX
+          acknowledged = true;
+          this.logger.error(`Invalid webhook sent to DLQ: ${embed.title}`);
+          await this.discordHookModel.increment('failedTries', { where: { messageId } });
+          await this.discordHookModel.update({ success: false, lastTryAt: new Date() }, { where: { messageId } });
+          break;
+
+        case DiscordSendStatus.ERROR:
+          // Неожиданная ошибка — возвращаем в очередь или в DLQ после maxRetryCount попыток
+          const hook = await this.discordHookModel.findOne({ where: { messageId } });
+          const failedTries = hook?.failedTries ?? 0;
+          if (failedTries >= appConfig.discord.maxRetryCount) {
+            channel.nack(msg, false, false);
+            acknowledged = true;
+            await this.discordHookModel.update(
+              { failedTries: failedTries + 1, success: false, lastTryAt: new Date() },
+              { where: { messageId } },
+            );
+          } else {
+            channel.nack(msg, false, true); // requeue = true
+            acknowledged = true;
+            const retryMs = Math.min(1000 * Math.pow(2, failedTries), 30_000);
+            await this.discordHookModel.update(
+              { failedTries: failedTries + 1, lastTryAt: new Date(), nextRetryAt: new Date(Date.now() + retryMs) },
+              { where: { messageId } },
+            );
+            await this.sleep(retryMs);
+          }
+          break;
+      }
+    } catch (err) {
+      this.logger.error(`[${messageId}] Unexpected error, requeueing`, err);
+      if (!acknowledged) {
+        channel.nack(msg, false, true);
+      }
     }
   }
 
