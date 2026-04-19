@@ -4,10 +4,9 @@ import type { Options } from 'amqplib';
 import { Channel } from 'amqplib';
 import { IDiscordEmbed } from '../discord/discord.service';
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
+import { setupWebhookTopology, WebhookQueue } from './webhook.topology';
 
-export const WEBHOOK_QUEUE = 'webhook.queue';
-export const WEBHOOK_DLQ = 'webhook.dlq';
-export const WEBHOOK_DLX = 'webhook.dlx';
+export { WebhookQueue } from './webhook.topology';
 
 @Injectable()
 export class WebhookService implements OnModuleInit, OnApplicationShutdown {
@@ -23,27 +22,7 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
     this.channel = this.connection.createChannel({
       json: true,
       setup: async (channel: Channel) => {
-        // DLX — Dead Letter Exchange
-        await channel.assertExchange(WEBHOOK_DLX, 'direct', {
-          durable: true,
-        });
-
-        // DLQ — Dead Letter Queue (для невалидных вебхуков 400)
-        await channel.assertQueue(WEBHOOK_DLQ, {
-          durable: true,
-        });
-
-        await channel.bindQueue(WEBHOOK_DLQ, WEBHOOK_DLX, WEBHOOK_DLQ);
-
-        // Основная очередь с привязкой к DLX
-        await channel.assertQueue(WEBHOOK_QUEUE, {
-          durable: true,
-          arguments: {
-            'x-dead-letter-exchange': WEBHOOK_DLX,
-            'x-dead-letter-routing-key': WEBHOOK_DLQ,
-          },
-        });
-
+        await setupWebhookTopology(channel);
         this.logger.log('RabbitMQ queues initialized');
       },
     });
@@ -58,7 +37,7 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async publish(embed: IDiscordEmbed): Promise<void> {
-    await this.channel.sendToQueue(WEBHOOK_QUEUE, embed, {
+    await this.channel.sendToQueue(WebhookQueue.QUEUE, embed, {
       deliveryMode: 2,
       messageId: crypto.randomUUID(),
     } as Options.Publish);
