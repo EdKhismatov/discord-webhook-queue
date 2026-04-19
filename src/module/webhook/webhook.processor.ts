@@ -4,7 +4,7 @@ import { Channel, ConsumeMessage } from 'amqplib';
 import { appConfig } from '../../config';
 import { DiscordSendStatus, DiscordService, IDiscordEmbed } from '../discord/discord.service';
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
-import { WEBHOOK_DLQ, WEBHOOK_DLX, WEBHOOK_QUEUE } from './webhook.service';
+import { setupWebhookTopology, WebhookQueue } from './webhook.topology';
 
 const RATE_LIMIT_INTERVAL_MS = Math.ceil(1000 / appConfig.discord.rateLimit);
 
@@ -24,21 +24,12 @@ export class WebhookProcessor implements OnModuleInit, OnApplicationShutdown {
     this.channel = this.connection.createChannel({
       json: true,
       setup: async (channel: Channel) => {
-        await channel.assertExchange(WEBHOOK_DLX, 'direct', { durable: true });
-        await channel.assertQueue(WEBHOOK_DLQ, { durable: true });
-        await channel.bindQueue(WEBHOOK_DLQ, WEBHOOK_DLX, WEBHOOK_DLQ);
-        await channel.assertQueue(WEBHOOK_QUEUE, {
-          durable: true,
-          arguments: {
-            'x-dead-letter-exchange': WEBHOOK_DLX,
-            'x-dead-letter-routing-key': WEBHOOK_DLQ,
-          },
-        });
+        await setupWebhookTopology(channel);
 
         // Обрабатываем по одному сообщению за раз!
         await channel.prefetch(1);
 
-        await channel.consume(WEBHOOK_QUEUE, (msg) => this.handleMessage(channel, msg));
+        await channel.consume(WebhookQueue.QUEUE, (msg) => this.handleMessage(channel, msg));
 
         this.logger.log('Webhook processor started');
       },
