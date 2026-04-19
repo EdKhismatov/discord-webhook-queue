@@ -216,18 +216,18 @@ npm run start:prod
 
 ### Таблица `discord_hooks`
 
-| Колонка | Тип | Описание |
-|---|---|---|
-| id | UUID | первичный ключ |
-| messageId | UUID | уникальный ID из RabbitMQ |
-| event | string | тип события (например: `webhook`) |
-| payload | JSONB | тело вебхука |
-| success | boolean / null | `null` — в работе, `true` — доставлен, `false` — провал |
-| failedTries | integer | количество неудачных попыток |
-| lastTryAt | timestamptz | время последней попытки |
-| nextRetryAt | timestamptz | запланированное время следующей попытки |
-| createdAt | timestamptz | время создания записи |
-| updatedAt | timestamptz | время последнего обновления |
+| Колонка | Тип | Описание                                                          |
+|---|---|-------------------------------------------------------------------|
+| id | UUID | первичный ключ                                                    |
+| messageId | UUID | уникальный ID из RabbitMQ                                         |
+| event | string | тип события (например: `webhook`, `register`, `order`, `service`) |
+| payload | JSONB | тело вебхука                                                      |
+| success | boolean / null | `null` — в работе, `true` — доставлен, `false` — провал           |
+| failedTries | integer | количество неудачных попыток                                      |
+| lastTryAt | timestamptz | время последней попытки                                           |
+| nextRetryAt | timestamptz | запланированное время следующей попытки                           |
+| createdAt | timestamptz | время создания записи                                             |
+| updatedAt | timestamptz | время последнего обновления                                       |
 
 ---
 
