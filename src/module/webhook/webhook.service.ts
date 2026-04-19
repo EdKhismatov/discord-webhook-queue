@@ -44,17 +44,17 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
   async publish(embed: IDiscordEmbed): Promise<void> {
     const messageId = crypto.randomUUID();
 
-    await this.channel.sendToQueue(WebhookQueue.QUEUE, embed, {
-      deliveryMode: 2,
-      messageId,
-    } as Options.Publish);
-
     await this.discordHookModel.create({
       messageId,
       event: WebhookEvent.WEBHOOK,
       payload: embed,
       success: null,
     });
+
+    await this.channel.sendToQueue(WebhookQueue.QUEUE, embed, {
+      deliveryMode: 2,
+      messageId,
+    } as Options.Publish);
 
     this.logger.log(`Webhook queued: ${embed.title}`);
   }
