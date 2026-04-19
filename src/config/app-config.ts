@@ -14,7 +14,7 @@ const rawConfig: EnvStructure<AppConfigDto> = {
   port: process.env.PORT,
   discord: {
     webhookUrl: process.env.DISCORD_WEBHOOK_URL,
-    rateLimit: process.env.DISCORD_RATE_LIMIT,
+    rateLimitIntervalFactor: process.env.RATE_LIMIT_INTERVAL_FACTOR,
     maxRetryCount: process.env.DISCORD_MAX_RETRY_COUNT,
   },
   rabbit: {
