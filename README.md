@@ -94,7 +94,7 @@ NODE_ENV=dev
 
 # Discord
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-DISCORD_RATE_LIMIT=2          # максимум запросов в секунду
+RATE_LIMIT_INTERVAL_FACTOR=2  # максимум запросов в секунду
 DISCORD_MAX_RETRY_COUNT=5     # после N ошибок → DLQ
 
 # RabbitMQ
@@ -171,9 +171,7 @@ npm run start:prod
 
 **Response `202 Accepted`:**
 ```json
-{
-  "message": "Webhook accepted and queued"
-}
+true
 ```
 
 ---
@@ -223,8 +221,7 @@ npm run start:prod
 
 | Колонка | Тип | Описание                                                          |
 |---|---|-------------------------------------------------------------------|
-| id | UUID | первичный ключ                                                    |
-| messageId | UUID | уникальный ID из RabbitMQ                                         |
+| messageId | UUID | первичный ключ, ID из RabbitMQ                                    |
 | event | string | тип события (например: `webhook`, `register`, `order`, `service`) |
 | payload | JSONB | тело вебхука                                                      |
 | success | boolean / null | `null` — в работе, `true` — доставлен, `false` — провал           |
@@ -248,7 +245,7 @@ npm run start:prod
 Процессор логирует каждый этап обработки:
 ```
 [WebhookProcessor] Processing webhook: Новый пользователь
-[WebhookProcessor] Webhook sent: Новый пользователь
+[WebhookProcessor] Webhook sent: 95df8c98-e077-464f-a7b8-d6134feb29cf
 [WebhookProcessor] Rate limited, waiting 2000ms
 [WebhookProcessor] Invalid webhook sent to DLQ: Новый пользователь
 ```
