@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { type AmqpConnectionManager, ChannelWrapper } from 'amqp-connection-manager';
 import type { Options } from 'amqplib';
 import { Channel } from 'amqplib';
+import { WebhookEvent } from '../../common/enums/webhook-event.enum';
 import { DiscordHook } from '../database/entities/discord-hook.model';
 import { IDiscordEmbed } from '../discord/discord.service';
 import { RABBIT_CONNECTION } from '../rabbit/rabbit.module';
@@ -50,7 +51,7 @@ export class WebhookService implements OnModuleInit, OnApplicationShutdown {
 
     await this.discordHookModel.create({
       messageId,
-      event: 'webhook',
+      event: WebhookEvent.WEBHOOK,
       payload: embed,
       success: null,
     });

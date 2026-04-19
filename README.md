@@ -48,13 +48,18 @@ DiscordService.sendWebhook()
 
 ```
 src/
+├── common/
+│   ├── enums/
+│   │   └── webhook-event.enum.ts       # WebhookEvent (webhook, order, register, service)
+│   └── interceptor/
+│       └── logging.interceptor.ts      # логирование HTTP запросов (метод, маршрут, статус, время)
 ├── config/
-│   ├── app-config.ts           # загрузка и валидация env через class-validator
+│   ├── app-config.ts                   # загрузка и валидация env через class-validator
 │   └── dto/
-│       ├── app-config.dto.ts   # AppConfigDto
-│       ├── discord.dto.ts      # DiscordConfigDto
-│       ├── rabbit.dto.ts       # RabbitConfigDto
-│       └── db.dto.ts           # DbConfigDto
+│       ├── app-config.dto.ts           # AppConfigDto
+│       ├── discord.dto.ts              # DiscordConfigDto
+│       ├── rabbit.dto.ts               # RabbitConfigDto
+│       └── db.dto.ts                   # DbConfigDto
 ├── module/
 │   ├── database/
 │   │   ├── database.module.ts
@@ -68,7 +73,7 @@ src/
 │       ├── webhook.controller.ts       # POST /webhook/send
 │       ├── webhook.service.ts          # publish в очередь + запись в БД
 │       ├── webhook.processor.ts        # consume + обработка статусов
-│       ├── webhook.topology.ts         # объявление очередей и exchange
+│       ├── webhook.topology.ts         # объявление очередей и exchange (WebhookQueue enum)
 │       └── dto/
 │           └── send-webhook.dto.ts     # входящий DTO
 ├── validation/
@@ -228,6 +233,38 @@ npm run start:prod
 | nextRetryAt | timestamptz | запланированное время следующей попытки                           |
 | createdAt | timestamptz | время создания записи                                             |
 | updatedAt | timestamptz | время последнего обновления                                       |
+
+---
+
+## Логирование
+
+Все HTTP запросы логируются глобальным `LoggingInterceptor`:
+
+```
+[HTTP] POST /webhook/send 202 — 14ms
+[HTTP] POST /webhook/send 400 — 3ms
+```
+
+Процессор логирует каждый этап обработки:
+```
+[WebhookProcessor] Processing webhook: Новый пользователь
+[WebhookProcessor] Webhook sent: Новый пользователь
+[WebhookProcessor] Rate limited, waiting 2000ms
+[WebhookProcessor] Invalid webhook sent to DLQ: Новый пользователь
+```
+
+---
+
+## Типы событий (WebhookEvent)
+
+Поле `event` в таблице `discord_hooks` использует enum `WebhookEvent`:
+
+| Значение | Описание |
+|---|---|
+| `webhook` | общий вебхук |
+| `register` | регистрация пользователя |
+| `order` | событие заказа |
+| `service` | служебное событие |
 
 ---
 
